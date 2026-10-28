@@ -45,6 +45,7 @@ from megatron.bridge.training.config import (
 from megatron.bridge.training.finetune import finetune
 from megatron.bridge.training.mixed_precision import MixedPrecisionConfig
 from megatron.bridge.training.tokenizers.config import TokenizerConfig
+from omegaconf import OmegaConf
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="megatron_gpt_peft_tuning_config")
@@ -55,6 +56,10 @@ def main(cfg):
         mllogger.event(key="target_accuracy", value=0.925)
 
     cfg = utils.resolve(cfg)
+
+    ub_tp_comm_overlap_cfg = None
+    if cfg.model.ub_tp_comm_overlap and cfg.model.get("ub_tp_comm_overlap_cfg") is not None:
+        ub_tp_comm_overlap_cfg = OmegaConf.to_container(cfg.model.ub_tp_comm_overlap_cfg)
 
     model_cfg = GPTModelProvider(
         # Llama 2 70B architecture
@@ -85,6 +90,8 @@ def main(cfg):
         seq_length=cfg.model.encoder_seq_length,
         # Communication configuration
         cp_comm_type=cfg.model.cp_comm_type,
+        tp_comm_overlap=cfg.model.ub_tp_comm_overlap,
+        tp_comm_overlap_cfg=ub_tp_comm_overlap_cfg,
         calculate_per_token_loss=False,
         # Precision
         fp8_dot_product_attention=cfg.model.fp8_dot_product_attention,
