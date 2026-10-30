@@ -60,6 +60,12 @@ def main(cfg):
     ub_tp_comm_overlap_cfg = None
     if cfg.model.ub_tp_comm_overlap and cfg.model.get("ub_tp_comm_overlap_cfg") is not None:
         ub_tp_comm_overlap_cfg = OmegaConf.to_container(cfg.model.ub_tp_comm_overlap_cfg)
+    # With ring_exchange for the proj/fc2 forward reduce-scatter the LoRA loss changed by 3.0e-3
+    # after one optimizer step (4x A100, BF16; cause not found). Use the plain reduce-scatter then.
+    tp_comm_overlap_rs = not any(
+        (ub_tp_comm_overlap_cfg or {}).get(name, {}).get("method") == "ring_exchange"
+        for name in ("proj_fprop", "fc2_fprop")
+    )
 
     model_cfg = GPTModelProvider(
         # Llama 2 70B architecture
@@ -92,6 +98,11 @@ def main(cfg):
         cp_comm_type=cfg.model.cp_comm_type,
         tp_comm_overlap=cfg.model.ub_tp_comm_overlap,
         tp_comm_overlap_cfg=ub_tp_comm_overlap_cfg,
+        tp_comm_overlap_rs=tp_comm_overlap_rs,
+        # LoRA freezes the base weights, so TE skips their wgrad GEMM. With bulk wgrad overlap,
+        # TE's LayerNormLinear (linear_qkv) runs the dgrad reduce-scatter inside that GEMM, so
+        # the input gradient stays unreduced (TE regression; LayerNormMLP and te.ops check this).
+        tp_comm_bulk_wgrad=False,
         calculate_per_token_loss=False,
         # Precision
         fp8_dot_product_attention=cfg.model.fp8_dot_product_attention,
